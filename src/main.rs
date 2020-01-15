@@ -2,11 +2,11 @@ extern crate bincode;
 extern crate serde;
 extern crate structopt;
 
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::error::Error;
+use std::fs;
 use std::fs::File;
-use std::io::BufRead;
-use std::io::BufReader;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -19,28 +19,27 @@ struct Opt {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let opt = Opt::from_args();
-    let file = File::open(opt.path)?;
-    let mut lines = BufReader::new(file).lines();
-
-    let mut embeddings = HashMap::new();
+    let buffer = fs::read_to_string(opt.path)?;
 
     let out_file = File::create(opt.out_path)?;
 
-    let first_line = lines.next().ok_or("Empty file")??;
-    let tokens: Vec<_> = first_line.trim().split(' ').collect();
+    let first_line_offset = buffer.find('\n').unwrap();
+    let tokens: Vec<_> = buffer[0..first_line_offset].trim().split(' ').collect();
     let n = tokens[0].parse::<usize>()?;
     let d = tokens[1].parse::<usize>()?;
     println!("n = {}, d = {}", n, d);
 
-    for line in lines {
-        let line = line.expect("Line parsing error");
-        let mut tokens = line.trim().split(' ');
-        let word = tokens.next().ok_or("No word found")?.to_string();
+    let embeddings: HashMap<String, Vec<f32>> = buffer[first_line_offset + 1..]
+        .par_lines()
+        .map(|line| {
+            let mut tokens = line.trim().split(' ');
+            let word = tokens.next().expect("No word found").to_string();
 
-        let vector: Result<Vec<f32>, _> = tokens.map(|val| val.parse::<f32>()).collect();
-        let vector = vector?;
-        assert!(embeddings.insert(word, vector).is_none());
-    }
+            let vector: Result<Vec<f32>, _> = tokens.map(|val| val.parse::<f32>()).collect();
+            let vector = vector.expect("Parse failure");
+            (word, vector)
+        })
+        .collect();
     println!("Done reading.");
 
     bincode::serialize_into(out_file, &embeddings)?;
