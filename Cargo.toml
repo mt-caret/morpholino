@@ -1,0 +1,10 @@
+[package]
+name = "morpholino"
+version = "0.1.0"
+authors = ["Masayuki Takeda <mtakeda.enigsol@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+structopt = "0.3"
+serde = "1.0.104"
+bincode = "1.2.1"
