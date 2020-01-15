@@ -14,7 +14,6 @@ use structopt::StructOpt;
 struct Opt {
     #[structopt(short, long)]
     path: PathBuf,
-    out_path: PathBuf,
 }
 
 fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
@@ -46,8 +45,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let opt = Opt::from_args();
     let buffer = fs::read_to_string(opt.path)?;
 
-    let out_file = File::create(opt.out_path)?;
-
     let first_line_offset = buffer.find('\n').unwrap();
     let tokens: Vec<_> = buffer[0..first_line_offset].trim().split(' ').collect();
     let n = tokens[0].parse::<usize>()?;
@@ -75,9 +72,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         let boundaries = detect_morpheme_boundaries(key, &embeddings, 0.25);
         println!("{}: {:?}", key, boundaries);
     }
-
-    bincode::serialize_into(out_file, &embeddings)?;
-    println!("Done writing.");
 
     Ok(())
 }
