@@ -6,7 +6,6 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
-use std::fs::File;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -14,6 +13,9 @@ use structopt::StructOpt;
 struct Opt {
     #[structopt(short, long)]
     path: PathBuf,
+
+    #[structopt(short, long)]
+    number: usize,
 }
 
 fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
@@ -31,6 +33,10 @@ fn detect_morpheme_boundaries(
     let mut current = embeddings.get(word)?;
     let mut boundary_indices = Vec::new();
     for boundary_index in (1..word.len()).rev() {
+        if !word.is_char_boundary(boundary_index) {
+            continue;
+        }
+
         if let Some(new) = embeddings.get(&word[0..boundary_index]) {
             if cosine_similarity(current, new) > threshold {
                 boundary_indices.push(boundary_index);
@@ -38,6 +44,7 @@ fn detect_morpheme_boundaries(
             }
         }
     }
+    boundary_indices.reverse();
     Some(boundary_indices)
 }
 
@@ -68,8 +75,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     assert_eq!(embeddings.len(), n);
     println!("Done reading.");
 
-    for key in embeddings.keys().take(10) {
-        let boundaries = detect_morpheme_boundaries(key, &embeddings, 0.25);
+    for key in embeddings.keys().take(opt.number) {
+        let boundaries = detect_morpheme_boundaries(key, &embeddings, 0.25).unwrap();
         println!("{}: {:?}", key, boundaries);
     }
 
