@@ -37,9 +37,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             let vector: Result<Vec<f32>, _> = tokens.map(|val| val.parse::<f32>()).collect();
             let vector = vector.expect("Parse failure");
-            (word, vector)
+            let mut m = HashMap::new();
+            m.insert(word, vector);
+            m
         })
-        .collect();
+        .reduce(|| HashMap::new(), |a, b| a.into_iter().chain(b).collect());
     println!("Done reading.");
 
     bincode::serialize_into(out_file, &embeddings)?;
