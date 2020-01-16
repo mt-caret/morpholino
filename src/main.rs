@@ -24,6 +24,12 @@ struct Opt {
 
     #[structopt(short, long)]
     boundary_threshold: f64,
+
+    #[structopt(short, long)]
+    bidirectional_detection: bool,
+
+    #[structopt(short, long)]
+    no_header: bool,
 }
 
 fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
@@ -37,14 +43,16 @@ fn detect_morpheme_boundaries(
     word: &str,
     embeddings: &HashMap<String, Vec<f64>>,
     threshold: f64,
+    bidirectional: bool,
 ) -> Vec<usize> {
-    let mut current = embeddings
+    let original = embeddings
         .get(word)
         .ok_or_else(|| format!("word {} not found", word))
         .unwrap();
 
     let mut boundary_indices = Vec::new();
-    boundary_indices.push(word.len());
+
+    let mut current = original;
     for boundary_index in (1..word.len()).rev() {
         if !word.is_char_boundary(boundary_index) {
             continue;
@@ -57,8 +65,26 @@ fn detect_morpheme_boundaries(
             }
         }
     }
+
+    if bidirectional {
+        current = original;
+        for boundary_index in 1..word.len() {
+            if !word.is_char_boundary(boundary_index) {
+                continue;
+            }
+            if let Some(new) = embeddings.get(&word[boundary_index..word.len()]) {
+                if cosine_similarity(current, new) > threshold {
+                    boundary_indices.push(boundary_index - 1);
+                    current = new;
+                }
+            }
+        }
+    }
+
     boundary_indices.push(0);
-    boundary_indices.reverse();
+    boundary_indices.push(word.len());
+    boundary_indices.sort_unstable();
+    boundary_indices.dedup();
     boundary_indices
 }
 
@@ -66,8 +92,14 @@ fn generate_counts<'a>(
     word: &'a str,
     embeddings: &'a HashMap<String, Vec<f64>>,
     boundary_threshold: f64,
+    bidirectional_detection: bool,
 ) -> HashMap<&'a str, HashMap<&'a str, usize>> {
-    let boundaries = detect_morpheme_boundaries(word, embeddings, boundary_threshold);
+    let boundaries = detect_morpheme_boundaries(
+        word,
+        embeddings,
+        boundary_threshold,
+        bidirectional_detection,
+    );
     let mut counts = HashMap::new();
 
     for i in 0..boundaries.len() {
@@ -107,12 +139,18 @@ fn calculate_morpheme_frequencies<'a>(
     word_frequency: &'a HashMap<String, usize>,
     embeddings: &'a HashMap<String, Vec<f64>>,
     boundary_threshold: f64,
+    bidirectional_detection: bool,
 ) -> HashMap<&'a str, HashMap<&'a str, usize>> {
     word_frequency
         .par_iter()
         .map(|(word, count)| {
             if embeddings.contains_key(word) {
-                let mut counts = generate_counts(word, &embeddings, boundary_threshold);
+                let mut counts = generate_counts(
+                    word,
+                    &embeddings,
+                    boundary_threshold,
+                    bidirectional_detection,
+                );
                 counts.values_mut().for_each(|morpheme_counts| {
                     morpheme_counts.values_mut().for_each(|val| *val *= count);
                 });
@@ -195,9 +233,15 @@ fn viterbi_split<'a>(
     embeddings: &'a HashMap<String, Vec<f64>>,
     boundary_threshold: f64,
     morph_frequency: &HashMap<&'a str, (usize, HashMap<&'a str, usize>)>,
+    bidirectional_detection: bool,
 ) -> Option<Vec<usize>> {
     if embeddings.contains_key(word) {
-        let boundaries = detect_morpheme_boundaries(word, embeddings, boundary_threshold);
+        let boundaries = detect_morpheme_boundaries(
+            word,
+            embeddings,
+            boundary_threshold,
+            bidirectional_detection,
+        );
         let (mut path, _prob, _) = dfs(
             word,
             boundaries.len() - 1,
@@ -218,17 +262,8 @@ fn print_word_with_splits(word: &str, boundaries: &[usize]) {
     }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let opt = Opt::from_args();
-    let buffer = fs::read_to_string(&opt.embeddings_path)?;
-
-    let first_line_offset = buffer.find('\n').unwrap();
-    let tokens: Vec<_> = buffer[0..first_line_offset].trim().split(' ').collect();
-    let n = tokens[0].parse::<usize>()?;
-    let d = tokens[1].parse::<usize>()?;
-    println!("n = {}, d = {}", n, d);
-
-    let embeddings: HashMap<String, Vec<f64>> = buffer[first_line_offset + 1..]
+fn parse_to_vecs(buffer: &str, opt_dim: Option<usize>) -> HashMap<String, Vec<f64>> {
+    buffer
         .par_lines()
         .map(|line| {
             let mut tokens = line.trim().split(' ');
@@ -236,17 +271,43 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             let vector: Result<Vec<f64>, _> = tokens.map(|val| val.parse::<f64>()).collect();
             let vector = vector.expect("Parse failure");
-            assert_eq!(vector.len(), d);
+            if let Some(d) = opt_dim {
+                assert_eq!(vector.len(), d);
+            }
             let mut m = HashMap::new();
             m.insert(word, vector);
             m
         })
-        .reduce(|| HashMap::new(), |a, b| a.into_iter().chain(b).collect());
-    assert_eq!(embeddings.len(), n);
+        .reduce(|| HashMap::new(), |a, b| a.into_iter().chain(b).collect())
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let opt = Opt::from_args();
+    let buffer = fs::read_to_string(&opt.embeddings_path)?;
+
+    let embeddings = if opt.no_header {
+        println!("no header");
+        parse_to_vecs(&buffer, None)
+    } else {
+        let first_line_offset = buffer.find('\n').unwrap();
+        let tokens: Vec<_> = buffer[0..first_line_offset].trim().split(' ').collect();
+        let n = tokens[0].parse::<usize>()?;
+        let d = tokens[1].parse::<usize>()?;
+        println!("n = {}, d = {}", n, d);
+
+        let embeddings = parse_to_vecs(&buffer[first_line_offset + 1..], Some(d));
+        assert_eq!(embeddings.len(), n);
+        embeddings
+    };
     println!("Done reading embeddings.");
 
     //for key in embeddings.keys().take(opt.number) {
-    //    let boundaries = detect_morpheme_boundaries(key, &embeddings, opt.boundary_threshold);
+    //    let boundaries = detect_morpheme_boundaries(
+    //        key,
+    //        &embeddings,
+    //        opt.boundary_threshold,
+    //        opt.bidirectional_detection,
+    //    );
     //    let counts = generate_counts(key, &embeddings, opt.boundary_threshold);
     //    print!("{} -> ", key);
     //    print_word_with_splits(key, &boundaries);
@@ -270,8 +331,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     println!("Done reading corpus.");
 
-    let morphotactic_frequency =
-        calculate_morpheme_frequencies(&word_frequency, &embeddings, opt.boundary_threshold);
+    let morphotactic_frequency = calculate_morpheme_frequencies(
+        &word_frequency,
+        &embeddings,
+        opt.boundary_threshold,
+        opt.bidirectional_detection,
+    );
     println!("Done calculating morpheme frequencies.");
 
     let morphotactic_frequency: HashMap<&str, (usize, HashMap<&str, usize>)> =
@@ -299,6 +364,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             &embeddings,
             opt.boundary_threshold,
             &morphotactic_frequency,
+            opt.bidirectional_detection,
         );
         if let Some(boundaries) = boundaries {
             print!("{} -> ", word);
