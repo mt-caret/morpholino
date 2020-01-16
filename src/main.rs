@@ -83,7 +83,7 @@ fn detect_morpheme_boundaries(
             }
             if let Some(new) = embeddings.get(&word[boundary_index..word.len()]) {
                 if cosine_similarity(current, new) > threshold {
-                    boundary_indices.push(boundary_index - 1);
+                    boundary_indices.push(boundary_index);
                     current = new;
                 }
             }
