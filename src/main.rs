@@ -191,9 +191,21 @@ fn main() -> Result<(), Box<dyn Error>> {
     let morphotactic_frequency =
         calculate_morpheme_frequencies(&word_frequency, &embeddings, opt.boundary_threshold);
 
-    for (first_morpheme, morpheme_counts) in morphotactic_frequency.iter().take(opt.number) {
+    let morphotactic_frequency: HashMap<&str, (usize, HashMap<&str, usize>)> =
+        morphotactic_frequency
+            .into_par_iter()
+            .map(|(first_morpheme, morpheme_counts)| {
+                let sum = morpheme_counts.values().sum();
+                (first_morpheme, (sum, morpheme_counts))
+            })
+            .collect();
+
+    for (first_morpheme, (sum, morpheme_counts)) in morphotactic_frequency.iter().take(opt.number) {
         for (second_morpheme, count) in morpheme_counts.iter() {
-            println!("{} -> {}, {}", first_morpheme, second_morpheme, count);
+            println!(
+                "{} -> {}, {}/{}",
+                first_morpheme, second_morpheme, count, sum
+            );
         }
     }
 
