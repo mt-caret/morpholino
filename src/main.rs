@@ -102,9 +102,13 @@ fn calculate_morpheme_frequencies<'a>(
     word_frequency
         .par_iter()
         .map(|(word, count)| {
-            let mut counts = generate_counts(word, &embeddings, boundary_threshold);
-            counts.values_mut().for_each(|val| *val *= count);
-            counts
+            if embeddings.contains_key(word) {
+                let mut counts = generate_counts(word, &embeddings, boundary_threshold);
+                counts.values_mut().for_each(|val| *val *= count);
+                counts
+            } else {
+                HashMap::new()
+            }
         })
         .reduce(
             || HashMap::new(),
