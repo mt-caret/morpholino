@@ -73,10 +73,8 @@ fn generate_counts<'a>(
     for i in 0..boundaries.len() {
         if boundaries[i] == 0 {
             let morpheme_entry = counts.entry("^").or_insert(HashMap::new());
-            for end in (i + 1)..boundaries.len() {
-                let entry = morpheme_entry
-                    .entry(&word[boundaries[i]..boundaries[end]])
-                    .or_insert(0);
+            for end in 1..boundaries.len() {
+                let entry = morpheme_entry.entry(&word[0..boundaries[end]]).or_insert(0);
                 *entry += 1;
             }
             continue;
