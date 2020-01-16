@@ -66,7 +66,7 @@ fn generate_counts<'a>(
     word: &'a str,
     embeddings: &'a HashMap<String, Vec<f64>>,
     boundary_threshold: f64,
-) -> HashMap<(&'a str, &'a str), usize> {
+) -> HashMap<&'a str, HashMap<&'a str, usize>> {
     let boundaries = detect_morpheme_boundaries(word, embeddings, boundary_threshold);
     let mut counts = HashMap::new();
 
@@ -78,14 +78,15 @@ fn generate_counts<'a>(
                 &word[boundaries[start]..boundaries[i]]
             };
 
+            let morpheme_entry = counts.entry(first_morpheme).or_insert(HashMap::new());
             if boundaries[i] == word.len() {
-                assert!(counts.insert((first_morpheme, "$"), 1).is_none());
+                assert!(morpheme_entry.insert("$", 1).is_none());
                 continue;
             }
 
             for end in (i + 1)..boundaries.len() {
-                let entry = counts
-                    .entry((first_morpheme, &word[boundaries[i]..boundaries[end]]))
+                let entry = morpheme_entry
+                    .entry(&word[boundaries[i]..boundaries[end]])
                     .or_insert(0);
                 *entry += 1;
             }
@@ -98,13 +99,15 @@ fn calculate_morpheme_frequencies<'a>(
     word_frequency: &'a HashMap<String, usize>,
     embeddings: &'a HashMap<String, Vec<f64>>,
     boundary_threshold: f64,
-) -> HashMap<(&'a str, &'a str), usize> {
+) -> HashMap<&'a str, HashMap<&'a str, usize>> {
     word_frequency
         .par_iter()
         .map(|(word, count)| {
             if embeddings.contains_key(word) {
                 let mut counts = generate_counts(word, &embeddings, boundary_threshold);
-                counts.values_mut().for_each(|val| *val *= count);
+                counts.values_mut().for_each(|morpheme_counts| {
+                    morpheme_counts.values_mut().for_each(|val| *val *= count);
+                });
                 counts
             } else {
                 HashMap::new()
@@ -114,9 +117,12 @@ fn calculate_morpheme_frequencies<'a>(
             || HashMap::new(),
             |a, b| {
                 let (mut a, b) = if a.len() < b.len() { (b, a) } else { (a, b) };
-                for (&word, count) in b.iter() {
-                    let entry = a.entry(word).or_insert(0);
-                    *entry += count;
+                for (&first_morpheme, morpheme_counts) in b.iter() {
+                    let morpheme_entry = a.entry(first_morpheme).or_insert(HashMap::new());
+                    for (&second_morpheme, count) in morpheme_counts.iter() {
+                        let entry = morpheme_entry.entry(second_morpheme).or_insert(0);
+                        *entry += count;
+                    }
                 }
                 a
             },
@@ -176,8 +182,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let morphotactic_frequency =
         calculate_morpheme_frequencies(&word_frequency, &embeddings, opt.boundary_threshold);
 
-    for ((a, b), value) in morphotactic_frequency.iter().take(opt.number) {
-        println!("{} -> {}, {}", a, b, value);
+    for (first_morpheme, morpheme_counts) in morphotactic_frequency.iter().take(opt.number) {
+        for (second_morpheme, count) in morpheme_counts.iter() {
+            println!("{} -> {}, {}", first_morpheme, second_morpheme, count);
+        }
     }
 
     Ok(())
