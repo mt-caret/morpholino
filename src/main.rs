@@ -37,8 +37,12 @@ fn detect_morpheme_boundaries(
     word: &str,
     embeddings: &HashMap<String, Vec<f64>>,
     threshold: f64,
-) -> Option<Vec<usize>> {
-    let mut current = embeddings.get(word)?;
+) -> Vec<usize> {
+    let mut current = embeddings
+        .get(word)
+        .ok_or_else(|| format!("word {} not found", word))
+        .unwrap();
+
     let mut boundary_indices = Vec::new();
     boundary_indices.push(word.len());
     for boundary_index in (1..word.len()).rev() {
@@ -55,17 +59,17 @@ fn detect_morpheme_boundaries(
     }
     boundary_indices.push(0);
     boundary_indices.reverse();
-    Some(boundary_indices)
+    boundary_indices
 }
 
 fn generate_counts<'a>(
     word: &'a str,
     embeddings: &'a HashMap<String, Vec<f64>>,
     boundary_threshold: f64,
-) -> Option<HashMap<(&'a str, &'a str), usize>> {
-    let boundaries = detect_morpheme_boundaries(word, embeddings, boundary_threshold)?;
-
+) -> HashMap<(&'a str, &'a str), usize> {
+    let boundaries = detect_morpheme_boundaries(word, embeddings, boundary_threshold);
     let mut counts = HashMap::new();
+
     for i in 1..boundaries.len() {
         let split_index = boundaries[i];
         for start in 0..i {
@@ -87,7 +91,7 @@ fn generate_counts<'a>(
             }
         }
     }
-    Some(counts)
+    counts
 }
 
 fn calculate_morpheme_frequencies<'a>(
@@ -98,7 +102,7 @@ fn calculate_morpheme_frequencies<'a>(
     word_frequency
         .par_iter()
         .map(|(word, count)| {
-            let mut counts = generate_counts(word, &embeddings, boundary_threshold).unwrap();
+            let mut counts = generate_counts(word, &embeddings, boundary_threshold);
             counts.values_mut().for_each(|val| *val *= count);
             counts
         })
@@ -143,8 +147,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Done reading embeddings.");
 
     for key in embeddings.keys().take(opt.number) {
-        let boundaries =
-            detect_morpheme_boundaries(key, &embeddings, opt.boundary_threshold).unwrap();
+        let boundaries = detect_morpheme_boundaries(key, &embeddings, opt.boundary_threshold);
         println!("{}: {:?}", key, boundaries);
     }
 
