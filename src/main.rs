@@ -30,6 +30,15 @@ struct Opt {
 
     #[structopt(short, long)]
     no_header: bool,
+
+    #[structopt(short, long)]
+    show_boundaries: bool,
+
+    #[structopt(short, long)]
+    show_morphemes: bool,
+
+    #[structopt(short, long)]
+    show_results: bool,
 }
 
 fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
@@ -104,7 +113,7 @@ fn generate_counts<'a>(
 
     for i in 0..boundaries.len() {
         if boundaries[i] == 0 {
-            let morpheme_entry = counts.entry("^").or_insert(HashMap::new());
+            let morpheme_entry = counts.entry("<start>").or_insert(HashMap::new());
             for end in 1..boundaries.len() {
                 let entry = morpheme_entry.entry(&word[0..boundaries[end]]).or_insert(0);
                 *entry += 1;
@@ -120,7 +129,7 @@ fn generate_counts<'a>(
 
             let morpheme_entry = counts.entry(first_morpheme).or_insert(HashMap::new());
             if boundaries[i] == word.len() {
-                assert!(morpheme_entry.insert("$", 1).is_none());
+                assert!(morpheme_entry.insert("<end>", 1).is_none());
                 continue;
             }
 
@@ -194,7 +203,7 @@ fn dfs<'a>(
         .map(|old_index| {
             let is_root_morpheme = old_index == 0;
             let mut last_morpheme = if is_root_morpheme {
-                "^"
+                "<start>"
             } else {
                 &word[boundaries[old_index]..boundaries[index]]
             };
@@ -245,7 +254,7 @@ fn viterbi_split<'a>(
         let (mut path, _prob, _) = dfs(
             word,
             boundaries.len() - 1,
-            "$",
+            "<end>",
             &boundaries,
             morph_frequency,
         );
@@ -301,18 +310,25 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     println!("Done reading embeddings.");
 
-    //for key in embeddings.keys().take(opt.number) {
-    //    let boundaries = detect_morpheme_boundaries(
-    //        key,
-    //        &embeddings,
-    //        opt.boundary_threshold,
-    //        opt.bidirectional_detection,
-    //    );
-    //    let counts = generate_counts(key, &embeddings, opt.boundary_threshold);
-    //    print!("{} -> ", key);
-    //    print_word_with_splits(key, &boundaries);
-    //    println!("{:?}", counts);
-    //}
+    if opt.show_boundaries {
+        for key in embeddings.keys().take(opt.number) {
+            let boundaries = detect_morpheme_boundaries(
+                key,
+                &embeddings,
+                opt.boundary_threshold,
+                opt.bidirectional_detection,
+            );
+            let counts = generate_counts(
+                key,
+                &embeddings,
+                opt.boundary_threshold,
+                opt.bidirectional_detection,
+            );
+            print!("{} -> ", key);
+            print_word_with_splits(key, &boundaries);
+            println!("{:?}", counts);
+        }
+    }
 
     let buffer = fs::read_to_string(&opt.corpus_path)?;
     let mut words: Vec<String> = buffer
@@ -349,29 +365,34 @@ fn main() -> Result<(), Box<dyn Error>> {
             .collect();
     println!("Done summing morpheme frequencies.");
 
-    //for (first_morpheme, (sum, morpheme_counts)) in morphotactic_frequency.iter().take(opt.number) {
-    //    for (second_morpheme, count) in morpheme_counts.iter() {
-    //        println!(
-    //            "{} -> {}, {}/{}",
-    //            first_morpheme, second_morpheme, count, sum
-    //        );
-    //    }
-    //}
-
-    for (word, frequency) in word_frequency.iter().take(opt.number) {
-        let boundaries = viterbi_split(
-            word,
-            &embeddings,
-            opt.boundary_threshold,
-            &morphotactic_frequency,
-            opt.bidirectional_detection,
-        );
-        if let Some(boundaries) = boundaries {
-            print!("{} -> ", word);
-            print_word_with_splits(word, &boundaries);
-            println!(", {}", frequency);
+    if opt.show_morphemes {
+        for (first_morpheme, (sum, morpheme_counts)) in
+            morphotactic_frequency.iter().take(opt.number)
+        {
+            for (second_morpheme, count) in morpheme_counts.iter() {
+                println!(
+                    "{} -> {}, {}/{}",
+                    first_morpheme, second_morpheme, count, sum
+                );
+            }
         }
     }
 
+    if opt.show_results {
+        for (word, frequency) in word_frequency.iter().take(opt.number) {
+            let boundaries = viterbi_split(
+                word,
+                &embeddings,
+                opt.boundary_threshold,
+                &morphotactic_frequency,
+                opt.bidirectional_detection,
+            );
+            if let Some(boundaries) = boundaries {
+                print!("{} -> ", word);
+                print_word_with_splits(word, &boundaries);
+                println!(", {}", frequency);
+            }
+        }
+    }
     Ok(())
 }
