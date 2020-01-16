@@ -71,12 +71,11 @@ fn generate_counts<'a>(
     let mut counts = HashMap::new();
 
     for i in 1..boundaries.len() {
-        let split_index = boundaries[i];
         for start in 0..i {
             let first_morpheme = if boundaries[start] == 0 {
                 "^"
             } else {
-                &word[boundaries[start]..split_index]
+                &word[boundaries[start]..boundaries[i]]
             };
 
             if boundaries[i] == word.len() {
@@ -85,9 +84,10 @@ fn generate_counts<'a>(
             }
 
             for end in (i + 1)..boundaries.len() {
-                assert!(counts
-                    .insert((first_morpheme, &word[split_index..boundaries[end]]), 1)
-                    .is_none());
+                let entry = counts
+                    .entry((first_morpheme, &word[boundaries[i]..boundaries[end]]))
+                    .or_insert(0);
+                *entry += 1;
             }
         }
     }
@@ -152,7 +152,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     for key in embeddings.keys().take(opt.number) {
         let boundaries = detect_morpheme_boundaries(key, &embeddings, opt.boundary_threshold);
-        println!("{}: {:?}", key, boundaries);
+        let counts = generate_counts(key, &embeddings, opt.boundary_threshold);
+        println!("{}: {:?}, {:?}", key, boundaries, counts);
     }
 
     let buffer = fs::read_to_string(&opt.corpus_path)?;
