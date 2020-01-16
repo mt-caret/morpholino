@@ -86,7 +86,7 @@ fn generate_counts<'a>(
 
             for end in (i + 1)..boundaries.len() {
                 assert!(counts
-                    .insert((first_morpheme, &word[split_index..end]), 1)
+                    .insert((first_morpheme, &word[split_index..boundaries[end]]), 1)
                     .is_none());
             }
         }
