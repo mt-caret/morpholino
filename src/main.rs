@@ -91,7 +91,7 @@ fn generate_counts<'a>(
 }
 
 fn calculate_morpheme_frequencies<'a>(
-    word_frequency: &'a HashMap<&str, usize>,
+    word_frequency: &'a HashMap<String, usize>,
     embeddings: &'a HashMap<String, Vec<f64>>,
     boundary_threshold: f64,
 ) -> HashMap<(&'a str, &'a str), usize> {
@@ -149,10 +149,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let buffer = fs::read_to_string(&opt.corpus_path)?;
-    let mut words: Vec<&str> = buffer.split_whitespace().collect();
+    let mut words: Vec<String> = buffer
+        .split_whitespace()
+        .map(|s| {
+            let mut s = s.to_string();
+            s.retain(|c| !c.is_ascii_punctuation());
+            s
+        })
+        .collect();
     words.sort_unstable();
     let mut word_frequency = HashMap::new();
-    for &word in words.iter() {
+    for word in words.into_iter() {
         let entry = word_frequency.entry(word).or_insert(0);
         *entry += 1;
     }
