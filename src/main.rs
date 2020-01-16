@@ -77,7 +77,6 @@ fn generate_counts<'a>(
                 let entry = morpheme_entry.entry(&word[0..boundaries[end]]).or_insert(0);
                 *entry += 1;
             }
-            continue;
         }
 
         for start in 0..i {
@@ -138,6 +137,75 @@ fn calculate_morpheme_frequencies<'a>(
         )
 }
 
+fn dfs<'a>(
+    word: &str,
+    index: usize,
+    morpheme: &str,
+    boundaries: &Vec<usize>,
+    morph_frequency: &HashMap<&'a str, (usize, HashMap<&'a str, usize>)>,
+) -> (Vec<usize>, f64) {
+    if index == 0 {
+        let mut path = Vec::new();
+        path.push(0);
+
+        return (path, 1f64);
+    }
+
+    (0..index)
+        .map(|old_index| {
+            let last_morpheme = if old_index == 0 {
+                "^"
+            } else {
+                &word[boundaries[old_index]..boundaries[index]]
+            };
+            let (mut path, old_prob) =
+                dfs(word, old_index, &last_morpheme, boundaries, morph_frequency);
+            path.push(old_index);
+            let prob = old_prob
+                * morph_frequency
+                    .get(&last_morpheme)
+                    .and_then(|(sum, morph_count)| {
+                        morph_count
+                            .get(morpheme)
+                            .map(|count| (*count as f64) / (*sum as f64))
+                    })
+                    .unwrap_or(0f64);
+            (path, prob)
+        })
+        .max_by(|(_, prob1), (_, prob2)| {
+            prob1
+                .partial_cmp(prob2)
+                .ok_or_else(|| format!("compare failed between {} and {}", prob1, prob2))
+                .unwrap()
+        })
+        .expect("should not be empty")
+}
+
+// TODO: this isn't really viterbi, as it naively uses recursion without memoization
+fn viterbi_split<'a>(
+    word: &str,
+    embeddings: &'a HashMap<String, Vec<f64>>,
+    boundary_threshold: f64,
+    morph_frequency: &HashMap<&'a str, (usize, HashMap<&'a str, usize>)>,
+) -> Vec<usize> {
+    let boundaries = detect_morpheme_boundaries(word, embeddings, boundary_threshold);
+    let (mut path, _prob) = dfs(
+        word,
+        boundaries.len() - 1,
+        "$",
+        &boundaries,
+        morph_frequency,
+    );
+    path.push(word.len());
+    path
+}
+
+fn print_word_with_splits(word: &str, boundaries: &[usize]) {
+    for i in 0..(boundaries.len() - 1) {
+        print!("{} ", word[boundaries[i]..boundaries[i + 1]].to_string());
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let opt = Opt::from_args();
     let buffer = fs::read_to_string(&opt.embeddings_path)?;
@@ -168,7 +236,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     for key in embeddings.keys().take(opt.number) {
         let boundaries = detect_morpheme_boundaries(key, &embeddings, opt.boundary_threshold);
         let counts = generate_counts(key, &embeddings, opt.boundary_threshold);
-        println!("{}: {:?}, {:?}", key, boundaries, counts);
+        print!("{} -> ", key);
+        print_word_with_splits(key, &boundaries);
+        println!("{:?}", counts);
     }
 
     let buffer = fs::read_to_string(&opt.corpus_path)?;
@@ -207,6 +277,18 @@ fn main() -> Result<(), Box<dyn Error>> {
                 first_morpheme, second_morpheme, count, sum
             );
         }
+    }
+
+    for (word, frequency) in word_frequency.iter().take(opt.number) {
+        let boundaries = viterbi_split(
+            word,
+            &embeddings,
+            opt.boundary_threshold,
+            &morphotactic_frequency,
+        );
+        print!("{} -> ", word);
+        print_word_with_splits(word, &boundaries);
+        println!(", {}", frequency);
     }
 
     Ok(())
