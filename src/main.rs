@@ -137,42 +137,50 @@ fn calculate_morpheme_frequencies<'a>(
         )
 }
 
+// dfs returns the path with max prob ending at index with morpheme
 fn dfs<'a>(
     word: &str,
     index: usize,
     morpheme: &str,
     boundaries: &Vec<usize>,
     morph_frequency: &HashMap<&'a str, (usize, HashMap<&'a str, usize>)>,
-) -> (Vec<usize>, f64) {
+) -> (Vec<usize>, f64, bool) {
     if index == 0 {
         let mut path = Vec::new();
         path.push(0);
 
-        return (path, 1f64);
+        return (path, 1f64, false);
     }
 
     (0..index)
         .map(|old_index| {
-            let last_morpheme = if old_index == 0 {
+            let is_root_morpheme = old_index == 0;
+            let mut last_morpheme = if is_root_morpheme {
                 "^"
             } else {
                 &word[boundaries[old_index]..boundaries[index]]
             };
-            let (mut path, old_prob) =
+
+            let (mut path, old_prob, was_root_morpheme) =
                 dfs(word, old_index, &last_morpheme, boundaries, morph_frequency);
+            if was_root_morpheme {
+                last_morpheme = "<root>";
+            }
             path.push(old_index);
+
             let prob = old_prob
                 * morph_frequency
                     .get(&last_morpheme)
                     .and_then(|(sum, morph_count)| {
-                        morph_count
-                            .get(morpheme)
-                            .map(|count| (*count as f64) / (*sum as f64))
+                        morph_count.get(morpheme).map(|count| {
+                            ((*count + 1) as f64) / ((*sum + morph_frequency.len()) as f64)
+                        })
                     })
-                    .unwrap_or(0f64);
-            (path, prob)
+                    .unwrap_or(1f64 / morph_frequency.len() as f64);
+
+            (path, prob, is_root_morpheme)
         })
-        .max_by(|(_, prob1), (_, prob2)| {
+        .max_by(|(_, prob1, _), (_, prob2, _)| {
             prob1
                 .partial_cmp(prob2)
                 .ok_or_else(|| format!("compare failed between {} and {}", prob1, prob2))
@@ -190,7 +198,7 @@ fn viterbi_split<'a>(
 ) -> Option<Vec<usize>> {
     if embeddings.contains_key(word) {
         let boundaries = detect_morpheme_boundaries(word, embeddings, boundary_threshold);
-        let (mut path, _prob) = dfs(
+        let (mut path, _prob, _) = dfs(
             word,
             boundaries.len() - 1,
             "$",
