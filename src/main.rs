@@ -187,17 +187,21 @@ fn viterbi_split<'a>(
     embeddings: &'a HashMap<String, Vec<f64>>,
     boundary_threshold: f64,
     morph_frequency: &HashMap<&'a str, (usize, HashMap<&'a str, usize>)>,
-) -> Vec<usize> {
-    let boundaries = detect_morpheme_boundaries(word, embeddings, boundary_threshold);
-    let (mut path, _prob) = dfs(
-        word,
-        boundaries.len() - 1,
-        "$",
-        &boundaries,
-        morph_frequency,
-    );
-    path.push(word.len());
-    path
+) -> Option<Vec<usize>> {
+    if embeddings.contains_key(word) {
+        let boundaries = detect_morpheme_boundaries(word, embeddings, boundary_threshold);
+        let (mut path, _prob) = dfs(
+            word,
+            boundaries.len() - 1,
+            "$",
+            &boundaries,
+            morph_frequency,
+        );
+        path.push(word.len());
+        Some(path)
+    } else {
+        None
+    }
 }
 
 fn print_word_with_splits(word: &str, boundaries: &[usize]) {
@@ -233,13 +237,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     assert_eq!(embeddings.len(), n);
     println!("Done reading embeddings.");
 
-    for key in embeddings.keys().take(opt.number) {
-        let boundaries = detect_morpheme_boundaries(key, &embeddings, opt.boundary_threshold);
-        let counts = generate_counts(key, &embeddings, opt.boundary_threshold);
-        print!("{} -> ", key);
-        print_word_with_splits(key, &boundaries);
-        println!("{:?}", counts);
-    }
+    //for key in embeddings.keys().take(opt.number) {
+    //    let boundaries = detect_morpheme_boundaries(key, &embeddings, opt.boundary_threshold);
+    //    let counts = generate_counts(key, &embeddings, opt.boundary_threshold);
+    //    print!("{} -> ", key);
+    //    print_word_with_splits(key, &boundaries);
+    //    println!("{:?}", counts);
+    //}
 
     let buffer = fs::read_to_string(&opt.corpus_path)?;
     let mut words: Vec<String> = buffer
@@ -260,6 +264,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let morphotactic_frequency =
         calculate_morpheme_frequencies(&word_frequency, &embeddings, opt.boundary_threshold);
+    println!("Done calculating morpheme frequencies.");
 
     let morphotactic_frequency: HashMap<&str, (usize, HashMap<&str, usize>)> =
         morphotactic_frequency
@@ -269,15 +274,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                 (first_morpheme, (sum, morpheme_counts))
             })
             .collect();
+    println!("Done summing morpheme frequencies.");
 
-    for (first_morpheme, (sum, morpheme_counts)) in morphotactic_frequency.iter().take(opt.number) {
-        for (second_morpheme, count) in morpheme_counts.iter() {
-            println!(
-                "{} -> {}, {}/{}",
-                first_morpheme, second_morpheme, count, sum
-            );
-        }
-    }
+    //for (first_morpheme, (sum, morpheme_counts)) in morphotactic_frequency.iter().take(opt.number) {
+    //    for (second_morpheme, count) in morpheme_counts.iter() {
+    //        println!(
+    //            "{} -> {}, {}/{}",
+    //            first_morpheme, second_morpheme, count, sum
+    //        );
+    //    }
+    //}
 
     for (word, frequency) in word_frequency.iter().take(opt.number) {
         let boundaries = viterbi_split(
@@ -286,9 +292,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             opt.boundary_threshold,
             &morphotactic_frequency,
         );
-        print!("{} -> ", word);
-        print_word_with_splits(word, &boundaries);
-        println!(", {}", frequency);
+        if let Some(boundaries) = boundaries {
+            print!("{} -> ", word);
+            print_word_with_splits(word, &boundaries);
+            println!(", {}", frequency);
+        }
     }
 
     Ok(())
