@@ -70,10 +70,21 @@ fn generate_counts<'a>(
     let boundaries = detect_morpheme_boundaries(word, embeddings, boundary_threshold);
     let mut counts = HashMap::new();
 
-    for i in 1..boundaries.len() {
+    for i in 0..boundaries.len() {
+        if boundaries[i] == 0 {
+            let morpheme_entry = counts.entry("^").or_insert(HashMap::new());
+            for end in (i + 1)..boundaries.len() {
+                let entry = morpheme_entry
+                    .entry(&word[boundaries[i]..boundaries[end]])
+                    .or_insert(0);
+                *entry += 1;
+            }
+            continue;
+        }
+
         for start in 0..i {
             let first_morpheme = if boundaries[start] == 0 {
-                "^"
+                "<root>"
             } else {
                 &word[boundaries[start]..boundaries[i]]
             };
