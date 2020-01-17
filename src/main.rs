@@ -363,7 +363,10 @@ fn auto_segment(opt: AutoSegmentOpt) -> Result<(), Box<dyn Error>> {
     }
 
     let buffer = fs::read_to_string(&opt.common.corpus_path)?;
-    let mut words: Vec<String> = buffer.split_whitespace().map(|x| x.to_string()).collect();
+    let mut words: Vec<String> = basic_english_normalize(buffer)
+        .split_whitespace()
+        .map(|x| x.to_string())
+        .collect();
     words.sort_unstable();
     let mut word_frequency = HashMap::new();
     for word in words.into_iter() {
