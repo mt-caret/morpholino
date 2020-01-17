@@ -10,14 +10,22 @@ use std::fs;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
-// TODO: implement loading from bincode?
 #[derive(StructOpt, Debug)]
-struct Opt {
+struct CommonOpt {
     #[structopt(short, long)]
     embeddings_path: PathBuf,
 
     #[structopt(short, long)]
     corpus_path: PathBuf,
+
+    #[structopt(short, long)]
+    no_header: bool,
+}
+
+#[derive(StructOpt, Debug)]
+struct AutoSegmentOpt {
+    #[structopt(flatten)]
+    common: CommonOpt,
 
     #[structopt(short, long)]
     number: usize,
@@ -29,9 +37,6 @@ struct Opt {
     bidirectional_detection: bool,
 
     #[structopt(short, long)]
-    no_header: bool,
-
-    #[structopt(short, long)]
     show_boundaries: bool,
 
     #[structopt(short, long)]
@@ -39,6 +44,11 @@ struct Opt {
 
     #[structopt(short, long)]
     show_results: bool,
+}
+
+#[derive(StructOpt, Debug)]
+enum Opt {
+    AutoSegment(AutoSegmentOpt),
 }
 
 fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
@@ -290,13 +300,14 @@ fn parse_to_vecs(buffer: &str, opt_dim: Option<usize>) -> HashMap<String, Vec<f6
         .reduce(|| HashMap::new(), |a, b| a.into_iter().chain(b).collect())
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let opt = Opt::from_args();
-    let buffer = fs::read_to_string(&opt.embeddings_path)?;
-
-    let embeddings = if opt.no_header {
+fn read_embeddings(
+    path: &PathBuf,
+    no_header: bool,
+) -> Result<HashMap<String, Vec<f64>>, Box<dyn Error>> {
+    let buffer = fs::read_to_string(path)?;
+    if no_header {
         println!("no header");
-        parse_to_vecs(&buffer, None)
+        Ok(parse_to_vecs(&buffer, None))
     } else {
         let first_line_offset = buffer.find('\n').unwrap();
         let tokens: Vec<_> = buffer[0..first_line_offset].trim().split(' ').collect();
@@ -306,8 +317,29 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         let embeddings = parse_to_vecs(&buffer[first_line_offset + 1..], Some(d));
         assert_eq!(embeddings.len(), n);
-        embeddings
-    };
+        Ok(embeddings)
+    }
+}
+
+// ported from pytorch's _basic_english_normalize
+// with exception of replacing multiple spaces with a single space
+fn basic_english_normalize(buffer: String) -> String {
+    buffer
+        .replace('\'', " ' ")
+        .replace('\"', "")
+        .replace('.', " . ")
+        .replace("<br />", " ")
+        .replace(',', " , ")
+        .replace('(', " ( ")
+        .replace(')', " ) ")
+        .replace('!', " ! ")
+        .replace('?', " ? ")
+        .replace(';', " ")
+        .replace(':', " ")
+}
+
+fn auto_segment(opt: AutoSegmentOpt) -> Result<(), Box<dyn Error>> {
+    let embeddings = read_embeddings(&opt.common.embeddings_path, opt.common.no_header)?;
     println!("Done reading embeddings.");
 
     if opt.show_boundaries {
@@ -330,15 +362,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let buffer = fs::read_to_string(&opt.corpus_path)?;
-    let mut words: Vec<String> = buffer
-        .split_whitespace()
-        .map(|s| {
-            let mut s = s.to_string();
-            s.retain(|c| !c.is_ascii_punctuation());
-            s
-        })
-        .collect();
+    let buffer = fs::read_to_string(&opt.common.corpus_path)?;
+    let mut words: Vec<String> = buffer.split_whitespace().map(|x| x.to_string()).collect();
     words.sort_unstable();
     let mut word_frequency = HashMap::new();
     for word in words.into_iter() {
@@ -395,4 +420,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
     Ok(())
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    match Opt::from_args() {
+        Opt::AutoSegment(opt) => auto_segment(opt),
+    }
 }
